@@ -52,6 +52,7 @@ jobs:
           echo "📦 同步代码到临时目录..."
           # 创建唯一的临时目录名
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
           TEMP_DIR="${{ secrets.SERVER_TARGET_DIR }}/temp_deploy_${TIMESTAMP}"
 
           # 先同步到临时目录
@@ -74,15 +75,26 @@ jobs:
       # 步骤5：在服务器上安全更新代码
       - name: Execute deployment commands
         run: |
-          # 传递时间戳到服务器
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "TIMESTAMP=${TIMESTAMP}" << 'EOF'
+          # 使用前一步骤生成的时间戳
+          TIMESTAMP=${{ env.TIMESTAMP }}
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "export TIMESTAMP=${TIMESTAMP}; bash -s" << 'EOF'
           set -e
+
+          # 设置清理函数（错误时也会执行）
+          cleanup() {
+            local target_dir="${{ secrets.SERVER_TARGET_DIR }}"
+            local temp_dir="${target_dir}/temp_deploy_${TIMESTAMP}"
+            if [ -d "$temp_dir" ]; then
+              echo "🧹 [清理] 删除临时目录: $temp_dir"
+              rm -rf "$temp_dir"
+            fi
+          }
+          trap cleanup EXIT
           echo "🔧 开始在服务器上执行部署命令..."
 
           TARGET_DIR="${{ secrets.SERVER_TARGET_DIR }}"
-          CODE_DIR="${TARGET_DIR}/code"
-          TEMP_DIR="${TARGET_DIR}/temp_deploy_${TIMESTAMP}"
+          CODE_DIR="$TARGET_DIR/code"
+          TEMP_DIR="$TARGET_DIR/temp_deploy_$TIMESTAMP"
 
           # 检查目标目录是否存在
           if [ ! -d "$TARGET_DIR" ]; then
@@ -137,8 +149,14 @@ jobs:
             echo "✅ 链接根目录 .env 到 docker/.env"
           elif [ -f "$CODE_DIR/docker/.env.example" ]; then
             cp "$CODE_DIR/docker/.env.example" "$TARGET_DIR/.env"
+            # 修改配置以允许远程访问
+            sed -i 's/WEB_LISTEN_ADDR="127.0.0.1:8888"/WEB_LISTEN_ADDR="0.0.0.0:8888"/' "$TARGET_DIR/.env"
             ln -sf "$TARGET_DIR/.env" "$CODE_DIR/docker/.env"
-            echo "✅ 创建 .env 文件并建立链接"
+            echo "✅ 创建 .env 文件并建立链接（已配置远程访问）"
+          else
+            echo "❌ 未找到 .env 或 .env.example 文件"
+            echo "💡 请在 $TARGET_DIR/ 创建 .env 文件"
+            exit 1
           fi
 
           # 处理 AI 模型配置文件
@@ -166,8 +184,14 @@ jobs:
           echo "🧹 清理临时文件..."
           if [ -d "$TEMP_DIR" ]; then
             rm -rf "$TEMP_DIR"
-            echo "✅ 已清理临时目录"
+            echo "✅ 已清理临时目录: $TEMP_DIR"
+          else
+            echo "⚠️  临时目录不存在: $TEMP_DIR"
           fi
+
+          # 清理所有旧的临时目录（防止遗留）
+          find "$TARGET_DIR" -name "temp_deploy_*" -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+          echo "✅ 已清理所有旧的临时目录"
 
           # 保留最新的3个备份
           cd "$TARGET_DIR"
