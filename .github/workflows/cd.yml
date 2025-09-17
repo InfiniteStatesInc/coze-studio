@@ -133,7 +133,11 @@ jobs:
           echo "🛑 停止现有服务..."
           if [ -f "$CODE_DIR/docker/docker-compose.yml" ]; then
             cd "$CODE_DIR/docker"
-            docker compose down || true
+            if command -v docker-compose &> /dev/null; then
+              docker-compose down || true
+            else
+              docker compose down || true
+            fi
           fi
 
           # 更新代码到 code 目录
@@ -206,8 +210,13 @@ jobs:
 
           # 拉取最新镜像并启动服务
           echo "🐳 启动 Docker 服务..."
-          docker compose pull || true
-          docker compose up -d
+          if command -v docker-compose &> /dev/null; then
+            docker-compose pull || true
+            docker-compose up -d
+          else
+            docker compose pull || true
+            docker compose up -d
+          fi
 
           # 等待服务启动
           echo "⏳ 等待服务启动..."
@@ -215,13 +224,25 @@ jobs:
 
           # 检查服务状态
           echo "🔍 检查服务状态..."
-          docker compose ps
+          if command -v docker-compose &> /dev/null; then
+            docker-compose ps
+          else
+            docker compose ps
+          fi
 
           # 检查服务健康状态
-          if docker compose ps | grep -q "unhealthy\|exited"; then
-            echo "❌ 某些服务启动失败"
-            docker compose logs --tail=50
-            exit 1
+          if command -v docker-compose &> /dev/null; then
+            if docker-compose ps | grep -q "unhealthy\|exited"; then
+              echo "❌ 某些服务启动失败"
+              docker-compose logs --tail=50
+              exit 1
+            fi
+          else
+            if docker compose ps | grep -q "unhealthy\|exited"; then
+              echo "❌ 某些服务启动失败"
+              docker compose logs --tail=50
+              exit 1
+            fi
           fi
 
           # 检查主服务是否可访问
