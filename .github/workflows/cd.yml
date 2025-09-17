@@ -67,7 +67,6 @@ jobs:
             --exclude 'backend/conf/model/*.yaml' \
             --exclude '**/*.log' \
             --exclude 'docker/data' \
-            --exclude 'docker/volumes' \
             ./ ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${TEMP_DIR}
 
           echo "🔄 安全更新代码（保护配置文件）..."
