@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { type FC, type PropsWithChildren } from 'react';
 
 import { GlobalLayout } from '@coze-foundation/layout';
@@ -38,9 +38,14 @@ export const GlobalLayoutComposed: FC<PropsWithChildren> = ({ children }) => {
   const config = useRouteConfig();
   const hasSider = useHasSider();
   const { space_id } = useParams();
+  const [searchParams] = useSearchParams();
+
+  // 检测URL参数，控制是否显示创建应用按钮
+  const showProjectButton = searchParams.get('showProject') === 'true';
 
   const { createBot, createBotModal } = useCreateBotAction({
     currentSpaceId: space_id,
+    showProjectButton,
   });
 
   return (
@@ -67,25 +72,25 @@ export const GlobalLayoutComposed: FC<PropsWithChildren> = ({ children }) => {
             path: '/space',
             dataTestId: 'layout_workspace-button',
           },
-          {
-            title: I18n.t('menu_title_store'),
-            icon: <IconCozCompass />,
-            activeIcon: <IconCozCompassFill />,
-            path: '/explore',
-            dataTestId: 'layout_explore-button',
-          },
+          // {
+          //   title: I18n.t('menu_title_store'),
+          //   icon: <IconCozCompass />,
+          //   activeIcon: <IconCozCompassFill />,
+          //   path: '/explore',
+          //   dataTestId: 'layout_explore-button',
+          // },
         ]}
-        extras={[
-          {
-            icon: <IconCozDocument />,
-            tooltip: I18n.t('menu_documents'),
-            onClick: () => {
-              // cp-disable-next-line
-              window.open('https://www.coze.cn/open/docs/guides');
-            },
-            dataTestId: 'layout_document-button',
-          },
-        ]}
+        // extras={[
+        //   {
+        //     icon: <IconCozDocument />,
+        //     tooltip: I18n.t('menu_documents'),
+        //     onClick: () => {
+        //       // cp-disable-next-line
+        //       window.open('https://www.coze.cn/open/docs/guides');
+        //     },
+        //     dataTestId: 'layout_document-button',
+        //   },
+        // ]}
         footer={<AccountDropdown />}
       >
         {children}
