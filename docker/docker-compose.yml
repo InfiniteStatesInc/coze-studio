@@ -324,6 +324,7 @@ services:
     volumes:
       - .env:/app/.env
       - ../backend/conf:/app/resources/conf
+      - /data/coze-studio:/data/coze-studio
       # - ../backend/static:/app/resources/static
     depends_on:
       redis:
