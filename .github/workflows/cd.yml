@@ -44,56 +44,53 @@ jobs:
         run: |
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      # 步骤4：部署代码到服务器（保护现有配置）
-      - name: Deploy to server
+      # 步骤4：检查变更文件并准备部署
+      - name: Check changed files
+        id: changes
+        run: |
+          echo "🔍 检查变更文件..."
+          if git diff --name-only HEAD~1 HEAD | grep -q "^frontend/"; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "📦 前端代码有变更"
+          else
+            echo "frontend_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only HEAD~1 HEAD | grep -q "^backend/"; then
+            echo "backend_changed=true" >> $GITHUB_OUTPUT
+            echo "🔧 后端代码有变更"
+          else
+            echo "backend_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only HEAD~1 HEAD | grep -q "^docker/"; then
+            echo "docker_changed=true" >> $GITHUB_OUTPUT
+            echo "🐳 Docker配置有变更"
+          else
+            echo "docker_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 步骤5：部署配置和拉取镜像
+      - name: Deploy and update services
         run: |
           echo "🚀 开始部署 Coze Studio 到服务器..."
-
-          echo "📦 同步代码到临时目录..."
-          # 创建唯一的临时目录名
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
-          TEMP_DIR="${{ secrets.SERVER_TARGET_DIR }}/temp_deploy_${TIMESTAMP}"
 
-          # 先同步到临时目录
-          rsync -avz \
-            --exclude '.env*' \
-            --exclude '.github' \
-            --exclude 'node_modules' \
-            --exclude 'common/temp' \
-            --exclude 'frontend/apps/*/node_modules' \
-            --exclude 'frontend/packages/*/node_modules' \
-            --exclude 'backend/bin' \
-            --exclude 'backend/conf/model/*.yaml' \
-            --exclude '**/*.log' \
-            --exclude 'docker/data' \
-            ./ ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${TEMP_DIR}
-
-          echo "🔄 安全更新代码（保护配置文件）..."
-
-      # 步骤5：在服务器上安全更新代码
+      # 步骤6：在服务器上执行部署
       - name: Execute deployment commands
+        env:
+          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend_changed }}
+          BACKEND_CHANGED: ${{ steps.changes.outputs.backend_changed }}
+          DOCKER_CHANGED: ${{ steps.changes.outputs.docker_changed }}
         run: |
-          # 使用前一步骤生成的时间戳
           TIMESTAMP=${{ env.TIMESTAMP }}
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "export TIMESTAMP=${TIMESTAMP}; bash -s" << 'EOF'
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "export TIMESTAMP=${TIMESTAMP}; export FRONTEND_CHANGED=${FRONTEND_CHANGED}; export BACKEND_CHANGED=${BACKEND_CHANGED}; export DOCKER_CHANGED=${DOCKER_CHANGED}; bash -s" << 'EOF'
           set -e
 
-          # 设置清理函数（错误时也会执行）
-          cleanup() {
-            local target_dir="${{ secrets.SERVER_TARGET_DIR }}"
-            local temp_dir="${target_dir}/temp_deploy_${TIMESTAMP}"
-            if [ -d "$temp_dir" ]; then
-              echo "🧹 [清理] 删除临时目录: $temp_dir"
-              rm -rf "$temp_dir"
-            fi
-          }
-          trap cleanup EXIT
           echo "🔧 开始在服务器上执行部署命令..."
-
           TARGET_DIR="${{ secrets.SERVER_TARGET_DIR }}"
           CODE_DIR="$TARGET_DIR/code"
-          TEMP_DIR="$TARGET_DIR/temp_deploy_$TIMESTAMP"
 
           # 检查目标目录是否存在
           if [ ! -d "$TARGET_DIR" ]; then
@@ -107,156 +104,148 @@ jobs:
             exit 1
           fi
 
-          # 创建代码目录
-          mkdir -p "$CODE_DIR"
+          # 确保 docker 目录存在
+          mkdir -p "$CODE_DIR/docker"
+
+          # 如果是首次部署，获取 docker-compose.yml
+          if [ ! -f "$CODE_DIR/docker/docker-compose.yml" ]; then
+            echo "📥 首次部署，获取 Docker Compose 配置..."
+            curl -o "$CODE_DIR/docker/docker-compose.yml" "https://raw.githubusercontent.com/coze-dev/coze-studio/main/docker/docker-compose.yml" || {
+              echo "❌ 无法获取 docker-compose.yml，请手动放置"
+              exit 1
+            }
+          fi
 
           # 备份现有配置文件
           echo "💾 备份现有配置文件..."
           BACKUP_DIR="${TARGET_DIR}/config_backup_${TIMESTAMP}"
           mkdir -p "$BACKUP_DIR"
-
-          # 备份根目录下的配置文件
-          for config_file in "$TARGET_DIR"/*.env "$TARGET_DIR"/*.yaml "$TARGET_DIR"/*.yml "$TARGET_DIR"/*.json; do
+          for config_file in "$TARGET_DIR"/*.env "$TARGET_DIR"/*.yaml "$TARGET_DIR"/*.yml; do
             if [ -f "$config_file" ]; then
               cp "$config_file" "$BACKUP_DIR/"
               echo "✅ 备份配置文件: $(basename $config_file)"
             fi
           done
 
-          # 备份代码目录中的数据目录
-          if [ -d "$CODE_DIR/docker/data" ]; then
-            echo "📂 Docker 数据目录已保留"
-          fi
-
-          # 停止现有服务
-          echo "🛑 停止现有服务..."
-          if [ -f "$CODE_DIR/docker/docker-compose.yml" ]; then
-            cd "$CODE_DIR/docker"
-            if command -v docker-compose &> /dev/null; then
-              docker-compose down || true
-            else
-              docker compose down || true
-            fi
-          fi
-
-          # 更新代码到 code 目录
-          echo "🔄 更新应用代码到 code 目录..."
-          rsync -av --delete "${TEMP_DIR}/" "${CODE_DIR}/"
-
-          # 创建配置文件软链接或复制
+          # 设置配置文件链接
           echo "🔗 设置配置文件链接..."
 
           # 处理 Docker .env 文件
           if [ -f "$TARGET_DIR/.env" ]; then
             ln -sf "$TARGET_DIR/.env" "$CODE_DIR/docker/.env"
             echo "✅ 链接根目录 .env 到 docker/.env"
-          elif [ -f "$CODE_DIR/docker/.env.example" ]; then
-            cp "$CODE_DIR/docker/.env.example" "$TARGET_DIR/.env"
-            # 修改配置以允许远程访问
-            sed -i 's/WEB_LISTEN_ADDR="127.0.0.1:8888"/WEB_LISTEN_ADDR="0.0.0.0:8888"/' "$TARGET_DIR/.env"
-            ln -sf "$TARGET_DIR/.env" "$CODE_DIR/docker/.env"
-            echo "✅ 创建 .env 文件并建立链接（已配置远程访问）"
           else
-            echo "❌ 未找到 .env 或 .env.example 文件"
-            echo "💡 请在 $TARGET_DIR/ 创建 .env 文件"
+            echo "❌ 未找到 .env 文件在 $TARGET_DIR/"
+            echo "💡 请创建 .env 文件并参考 docker/.env.example"
             exit 1
           fi
 
           # 处理 AI 模型配置文件
           mkdir -p "$CODE_DIR/backend/conf/model"
+          model_count=0
           for model_file in "$TARGET_DIR"/*.yaml "$TARGET_DIR"/*.yml; do
             if [ -f "$model_file" ]; then
               filename=$(basename "$model_file")
               ln -sf "$model_file" "$CODE_DIR/backend/conf/model/$filename"
               echo "✅ 链接模型配置: $filename"
+              model_count=$((model_count + 1))
             fi
           done
 
-          # 如果根目录没有模型配置，提示用户
-          model_count=$(ls -1 "$TARGET_DIR"/*.yaml "$TARGET_DIR"/*.yml 2>/dev/null | wc -l)
           if [ "$model_count" -eq 0 ]; then
-            echo "⚠️  未找到模型配置文件，请在以下位置创建:"
-            echo "    $TARGET_DIR/openai-gpt4o.yaml"
-            echo "    $TARGET_DIR/claude-3-5-sonnet.yaml"
-            echo "    $TARGET_DIR/gemini-pro.yaml"
-            echo ""
-            echo "📝 参考模板文件: $CODE_DIR/backend/conf/model/template/"
+            echo "⚠️  未找到模型配置文件，请在 $TARGET_DIR/ 创建 *.yaml 配置"
+            echo "📝 参考: https://github.com/coze-dev/coze-studio/tree/main/backend/conf/model/template"
           fi
 
-          # 清理临时目录
-          echo "🧹 清理临时文件..."
-          if [ -d "$TEMP_DIR" ]; then
-            rm -rf "$TEMP_DIR"
-            echo "✅ 已清理临时目录: $TEMP_DIR"
-          else
-            echo "⚠️  临时目录不存在: $TEMP_DIR"
-          fi
-
-          # 清理所有旧的临时目录（防止遗留）
-          find "$TARGET_DIR" -name "temp_deploy_*" -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
-          echo "✅ 已清理所有旧的临时目录"
-
-          # 保留最新的3个备份
+          # 清理旧备份（保留最新3个）
           cd "$TARGET_DIR"
-          echo "🗂️  清理旧备份文件..."
           ls -dt config_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
-
-          # 清理过老的日志文件（保留最近7天）
           find "$TARGET_DIR" -name "*.log" -type f -mtime +7 -delete 2>/dev/null || true
 
-          # 返回 docker 目录准备启动服务
+          # 进入 docker 目录
           cd "$CODE_DIR/docker"
 
-          # 拉取最新镜像并启动服务
-          echo "🐳 启动 Docker 服务..."
+          # 根据变更情况智能部署
+          echo "🚀 开始智能部署..."
+
+          # 检查哪个 docker compose 命令可用
           if command -v docker-compose &> /dev/null; then
-            docker-compose pull || true
-            docker-compose up -d
+            DOCKER_COMPOSE="docker-compose"
           else
-            docker compose pull || true
-            docker compose up -d
+            DOCKER_COMPOSE="docker compose"
           fi
 
+          # 确定需要更新的服务
+          SERVICES_TO_UPDATE=""
+
+          if [ "$FRONTEND_CHANGED" = "true" ] || [ "$DOCKER_CHANGED" = "true" ]; then
+            SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE coze-web"
+            echo "📦 前端或Docker配置有变更，将更新 coze-web"
+          fi
+
+          if [ "$BACKEND_CHANGED" = "true" ] || [ "$DOCKER_CHANGED" = "true" ]; then
+            SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE coze-server"
+            echo "🔧 后端或Docker配置有变更，将更新 coze-server"
+          fi
+
+          if [ -z "$SERVICES_TO_UPDATE" ]; then
+            echo "📋 没有应用代码变更，只检查基础设施服务状态"
+            $DOCKER_COMPOSE ps
+            exit 0
+          fi
+
+          echo "🐳 拉取最新镜像: $SERVICES_TO_UPDATE"
+          $DOCKER_COMPOSE pull $SERVICES_TO_UPDATE || true
+
+          echo "🔄 重启更新的服务: $SERVICES_TO_UPDATE"
+          $DOCKER_COMPOSE up -d --no-deps $SERVICES_TO_UPDATE
+
           # 等待服务启动
-          echo "⏳ 等待服务启动..."
-          sleep 30
+          echo "⏳ 等待服务启动完成..."
+          sleep 20
 
           # 检查服务状态
           echo "🔍 检查服务状态..."
-          if command -v docker-compose &> /dev/null; then
-            docker-compose ps
-          else
-            docker compose ps
-          fi
+          $DOCKER_COMPOSE ps
 
-          # 检查服务健康状态
-          if command -v docker-compose &> /dev/null; then
-            if docker-compose ps | grep -q "unhealthy\|exited"; then
-              echo "❌ 某些服务启动失败"
-              docker-compose logs --tail=50
+          # 检查更新服务的健康状态
+          for service in $SERVICES_TO_UPDATE; do
+            echo "🏥 检查 $service 健康状态..."
+            if $DOCKER_COMPOSE ps $service | grep -q "unhealthy\|exited"; then
+              echo "❌ 服务 $service 启动失败"
+              $DOCKER_COMPOSE logs --tail=20 $service
               exit 1
+            else
+              echo "✅ 服务 $service 运行正常"
             fi
-          else
-            if docker compose ps | grep -q "unhealthy\|exited"; then
-              echo "❌ 某些服务启动失败"
-              docker compose logs --tail=50
-              exit 1
-            fi
+          done
+
+          # 检查主服务可访问性（仅当更新了web或server时）
+          if echo "$SERVICES_TO_UPDATE" | grep -q "coze-"; then
+            echo "🌐 检查服务可访问性..."
+            sleep 10
+            for i in {1..6}; do
+              if curl -f -s http://localhost:8888 > /dev/null 2>&1; then
+                echo "✅ Coze Studio 服务启动成功！"
+                echo "🎉 部署完成！访问地址: http://${{ secrets.SERVER_HOST }}:8888"
+                break
+              elif [ $i -eq 6 ]; then
+                echo "⚠️  服务可能仍在启动中"
+                echo "📋 查看日志: $DOCKER_COMPOSE logs -f $SERVICES_TO_UPDATE"
+              else
+                echo "⏳ 等待服务响应... ($i/6)"
+                sleep 10
+              fi
+            done
           fi
 
-          # 检查主服务是否可访问
-          echo "🌐 检查服务可访问性..."
-          sleep 10
-          if curl -f http://localhost:8888 > /dev/null 2>&1; then
-            echo "✅ Coze Studio 服务启动成功！"
-            echo "🎉 部署完成！访问地址: http://${{ secrets.SERVER_HOST }}:8888"
-          else
-            echo "⚠️  服务可能仍在启动中，请稍后检查"
-            echo "📋 查看日志命令: docker compose logs -f"
-          fi
-
-          # 清理旧的 Docker 镜像
-          echo "🧹 清理旧镜像..."
+          # 清理旧镜像（仅清理无标签镜像）
+          echo "🧹 清理无用镜像..."
           docker image prune -f || true
+
+          echo "🎯 部署总结:"
+          echo "   📊 更新的服务: $SERVICES_TO_UPDATE"
+          echo "   📈 基础设施服务保持运行，数据无中断"
+          echo "   🔧 配置文件: $(ls -1 $TARGET_DIR/*.{env,yaml,yml} 2>/dev/null | wc -l) 个"
 
           EOF
