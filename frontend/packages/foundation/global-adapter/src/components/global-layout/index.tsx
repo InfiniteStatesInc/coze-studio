@@ -29,6 +29,17 @@ import {
   enUS,
   zhCN,
 } from '@coze-arch/coze-design';
+
+// 创建自定义的语言包，覆盖 platform_name
+const customZhCN = {
+  ...zh_CN,
+  platform_name: 'Agent',
+};
+
+const customEnUS = {
+  ...en_US,
+  platform_name: 'Agent',
+};
 import { LocaleProvider } from '@coze-arch/bot-semi';
 
 import { GlobalLayoutComposed } from '@/components/global-layout-composed';
@@ -53,7 +64,7 @@ export const GlobalLayout: FC = () => {
 
   return (
     <I18nProvider i18n={I18n}>
-      <CDLocaleProvider locale={currentLocale === 'en-US' ? en_US : zh_CN}>
+      <CDLocaleProvider locale={currentLocale === 'en-US' ? customEnUS : customZhCN}>
         <LocaleProvider locale={currentLocale === 'en-US' ? enUS : zhCN}>
           <ThemeProvider
             defaultTheme="light"
