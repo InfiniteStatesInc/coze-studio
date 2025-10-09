@@ -20,17 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
+	einoCompose "github.com/cloudwego/eino/compose"
 	"github.com/spf13/cast"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 
-	"strconv"
-
-	einoCompose "github.com/cloudwego/eino/compose"
-
-	"github.com/coze-dev/coze-studio/backend/api/model/crossdomain/plugin"
 	workflowModel "github.com/coze-dev/coze-studio/backend/api/model/crossdomain/workflow"
 	cloudworkflow "github.com/coze-dev/coze-studio/backend/api/model/workflow"
 	"github.com/coze-dev/coze-studio/backend/application/base/ctxutil"
@@ -41,10 +38,10 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/canvas/convert"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/repo"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/schema"
-	"github.com/coze-dev/coze-studio/backend/infra/contract/cache"
-	"github.com/coze-dev/coze-studio/backend/infra/contract/chatmodel"
-	"github.com/coze-dev/coze-studio/backend/infra/contract/idgen"
-	"github.com/coze-dev/coze-studio/backend/infra/contract/storage"
+	"github.com/coze-dev/coze-studio/backend/infra/cache"
+	"github.com/coze-dev/coze-studio/backend/infra/chatmodel"
+	"github.com/coze-dev/coze-studio/backend/infra/idgen"
+	"github.com/coze-dev/coze-studio/backend/infra/storage"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/slices"
@@ -822,7 +819,7 @@ func (i *impl) ReleaseApplicationWorkflows(ctx context.Context, appID int64, con
 		return nil, err
 	}
 
-	relatedPlugins := make(map[int64]*plugin.PluginEntity, len(config.PluginIDs))
+	relatedPlugins := make(map[int64]*vo.PluginEntity, len(config.PluginIDs))
 	relatedWorkflow := make(map[int64]entity.IDVersionPair, len(allWorkflowsInApp))
 
 	for _, wf := range allWorkflowsInApp {
@@ -833,7 +830,7 @@ func (i *impl) ReleaseApplicationWorkflows(ctx context.Context, appID int64, con
 	}
 
 	for _, id := range config.PluginIDs {
-		relatedPlugins[id] = &plugin.PluginEntity{
+		relatedPlugins[id] = &vo.PluginEntity{
 			PluginID:      id,
 			PluginVersion: &config.Version,
 		}

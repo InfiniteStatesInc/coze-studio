@@ -29,8 +29,8 @@ import (
 
 	"github.com/coze-dev/coze-studio/backend/domain/agent/singleagent/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow"
-	"github.com/coze-dev/coze-studio/backend/infra/contract/chatmodel"
-	"github.com/coze-dev/coze-studio/backend/infra/contract/modelmgr"
+	"github.com/coze-dev/coze-studio/backend/infra/chatmodel"
+	"github.com/coze-dev/coze-studio/backend/infra/modelmgr"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/slices"
 )
@@ -42,6 +42,8 @@ type Config struct {
 	ModelMgr     modelmgr.Manager
 	ModelFactory chatmodel.Factory
 	CPStore      compose.CheckPointStore
+
+	CustomVariables map[string]string
 
 	ConversationID int64
 }
@@ -70,6 +72,11 @@ func BuildAgent(ctx context.Context, conf *Config) (r *AgentRunner, err error) {
 	avs, err := loadAgentVariables(ctx, avConf)
 	if err != nil {
 		return nil, err
+	}
+	if conf.CustomVariables != nil {
+		for k, v := range conf.CustomVariables {
+			avs[k] = v
+		}
 	}
 
 	promptVars := &promptVariables{
