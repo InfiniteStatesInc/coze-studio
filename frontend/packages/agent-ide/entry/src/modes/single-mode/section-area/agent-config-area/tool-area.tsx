@@ -73,6 +73,7 @@ export const ToolArea: React.FC<ToolAreaProps> = props => {
         <div className="p-[12px] overflow-auto flex-1" id={settingAreaScrollId}>
           <ToolView>
             <GroupingContainer
+              className="hidden"
               title={I18n.t('bot_edit_type_skills')}
               toolGroupKey={ToolGroupKey.SKILL}
             >
@@ -91,6 +92,7 @@ export const ToolArea: React.FC<ToolAreaProps> = props => {
               {skillToolSlot}
             </GroupingContainer>
             <GroupingContainer
+              className="hidden"
               toolGroupKey={ToolGroupKey.KNOWLEDGE}
               title={I18n.t('bot_edit_type_knowledge')}
               actionNodes={<DataSetSetting modelId={modelId ?? ''} />}
