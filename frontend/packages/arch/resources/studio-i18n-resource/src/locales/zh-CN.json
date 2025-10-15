@@ -371,7 +371,7 @@
   "bgi_adjust_tooltip_content": "拖动图片调整位置 / 滚动缩放图片",
   "bgi_adjust_tooltip_title": "调整背景图片",
   "bgi_already_set": "已配置背景图片",
-  "bgi_desc": "为你的智能体在扣子智能体商店增加对话背景图片，对话时更加沉浸",
+  "bgi_desc": "为你的智能体在智能体商店增加对话背景图片，对话时更加沉浸",
   "bgi_remove_popup_content": "移除后，需要重新发布智能体才能生效。",
   "bgi_remove_popup_title": "确认移除背景图片？",
   "bgi_reupload": "重新上传背景图",
