@@ -320,7 +320,7 @@ export const PluginInfoConfirm: React.FC<PluginInfoConfirmProps> = props => {
                     />
                     <span>
                       {I18n.t('plugin_create_draft_desc')}
-                      <PluginDocs />
+                      {/* <PluginDocs /> */}
                     </span>
                   </Space>
                 )}

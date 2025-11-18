@@ -213,7 +213,7 @@ export const CreateFormPluginModal: FC<CreatePluginFormProps> = props => {
                 <span className="mx-[4px]">
                   {I18n.t('plugin_create_draft_desc')}
                 </span>
-                <PluginDocs />
+                {/* <PluginDocs /> */}
               </Typography.Paragraph>
               <div>
                 <Button

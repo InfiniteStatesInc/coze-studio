@@ -182,7 +182,7 @@ const BaseTableMemory: FC<TableMemoryProps> = ({
           <div className={s['tip-content']}>
             <div style={{ marginBottom: '10px', width: 611 }}>
               <span>{I18n.t('db_memory_entry_tips')}</span>
-              <Typography.Text
+              {/* <Typography.Text
                 style={{
                   fontWeight: 400,
                 }}
@@ -199,7 +199,7 @@ const BaseTableMemory: FC<TableMemoryProps> = ({
                 }}
               >
                 {I18n.t('database_learnmore')}
-              </Typography.Text>
+              </Typography.Text> */}
             </div>
             <Image
               preview={false}

@@ -1,0 +1,251 @@
+name: Deploy Coze Studio
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'docker/**'
+      - 'Makefile'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      # 步骤1：检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 步骤2：配置SSH连接
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # 步骤3：添加服务器到已知主机
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      # 步骤4：检查变更文件并准备部署
+      - name: Check changed files
+        id: changes
+        run: |
+          echo "🔍 检查变更文件..."
+          if git diff --name-only HEAD~1 HEAD | grep -q "^frontend/"; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "📦 前端代码有变更"
+          else
+            echo "frontend_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only HEAD~1 HEAD | grep -q "^backend/"; then
+            echo "backend_changed=true" >> $GITHUB_OUTPUT
+            echo "🔧 后端代码有变更"
+          else
+            echo "backend_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only HEAD~1 HEAD | grep -q "^docker/"; then
+            echo "docker_changed=true" >> $GITHUB_OUTPUT
+            echo "🐳 Docker配置有变更"
+          else
+            echo "docker_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 步骤5：部署配置和拉取镜像
+      - name: Deploy and update services
+        run: |
+          echo "🚀 开始部署 Coze Studio 到服务器..."
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
+
+      # 步骤6：在服务器上执行部署
+      - name: Execute deployment commands
+        env:
+          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend_changed }}
+          BACKEND_CHANGED: ${{ steps.changes.outputs.backend_changed }}
+          DOCKER_CHANGED: ${{ steps.changes.outputs.docker_changed }}
+        run: |
+          TIMESTAMP=${{ env.TIMESTAMP }}
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "export TIMESTAMP=${TIMESTAMP}; export FRONTEND_CHANGED=${FRONTEND_CHANGED}; export BACKEND_CHANGED=${BACKEND_CHANGED}; export DOCKER_CHANGED=${DOCKER_CHANGED}; bash -s" << 'EOF'
+          set -e
+
+          echo "🔧 开始在服务器上执行部署命令..."
+          TARGET_DIR="${{ secrets.SERVER_TARGET_DIR }}"
+          CODE_DIR="$TARGET_DIR/code"
+
+          # 检查目标目录是否存在
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "📁 创建目标目录: $TARGET_DIR"
+            mkdir -p "$TARGET_DIR"
+          fi
+
+          # 检查 Docker 是否运行
+          if ! docker info > /dev/null 2>&1; then
+            echo "❌ Docker 未运行，请启动 Docker 服务"
+            exit 1
+          fi
+
+          # 确保 docker 目录存在
+          mkdir -p "$CODE_DIR/docker"
+
+          # 如果是首次部署，获取 docker-compose.yml
+          if [ ! -f "$CODE_DIR/docker/docker-compose.yml" ]; then
+            echo "📥 首次部署，获取 Docker Compose 配置..."
+            curl -o "$CODE_DIR/docker/docker-compose.yml" "https://raw.githubusercontent.com/coze-dev/coze-studio/main/docker/docker-compose.yml" || {
+              echo "❌ 无法获取 docker-compose.yml，请手动放置"
+              exit 1
+            }
+          fi
+
+          # 备份现有配置文件
+          echo "💾 备份现有配置文件..."
+          BACKUP_DIR="${TARGET_DIR}/config_backup_${TIMESTAMP}"
+          mkdir -p "$BACKUP_DIR"
+          for config_file in "$TARGET_DIR"/*.env "$TARGET_DIR"/*.yaml "$TARGET_DIR"/*.yml; do
+            if [ -f "$config_file" ]; then
+              cp "$config_file" "$BACKUP_DIR/"
+              echo "✅ 备份配置文件: $(basename $config_file)"
+            fi
+          done
+
+          # 设置配置文件链接
+          echo "🔗 设置配置文件链接..."
+
+          # 处理 Docker .env 文件
+          if [ -f "$TARGET_DIR/.env" ]; then
+            ln -sf "$TARGET_DIR/.env" "$CODE_DIR/docker/.env"
+            echo "✅ 链接根目录 .env 到 docker/.env"
+          else
+            echo "❌ 未找到 .env 文件在 $TARGET_DIR/"
+            echo "💡 请创建 .env 文件并参考 docker/.env.example"
+            exit 1
+          fi
+
+          # 处理 AI 模型配置文件
+          mkdir -p "$CODE_DIR/backend/conf/model"
+          model_count=0
+          for model_file in "$TARGET_DIR"/*.yaml "$TARGET_DIR"/*.yml; do
+            if [ -f "$model_file" ]; then
+              filename=$(basename "$model_file")
+              ln -sf "$model_file" "$CODE_DIR/backend/conf/model/$filename"
+              echo "✅ 链接模型配置: $filename"
+              model_count=$((model_count + 1))
+            fi
+          done
+
+          if [ "$model_count" -eq 0 ]; then
+            echo "⚠️  未找到模型配置文件，请在 $TARGET_DIR/ 创建 *.yaml 配置"
+            echo "📝 参考: https://github.com/coze-dev/coze-studio/tree/main/backend/conf/model/template"
+          fi
+
+          # 清理旧备份（保留最新3个）
+          cd "$TARGET_DIR"
+          ls -dt config_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+          find "$TARGET_DIR" -name "*.log" -type f -mtime +7 -delete 2>/dev/null || true
+
+          # 进入 docker 目录
+          cd "$CODE_DIR/docker"
+
+          # 根据变更情况智能部署
+          echo "🚀 开始智能部署..."
+
+          # 检查哪个 docker compose 命令可用
+          if command -v docker-compose &> /dev/null; then
+            DOCKER_COMPOSE="docker-compose"
+          else
+            DOCKER_COMPOSE="docker compose"
+          fi
+
+          # 确定需要更新的服务
+          SERVICES_TO_UPDATE=""
+
+          if [ "$FRONTEND_CHANGED" = "true" ] || [ "$DOCKER_CHANGED" = "true" ]; then
+            SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE coze-web"
+            echo "📦 前端或Docker配置有变更，将更新 coze-web"
+          fi
+
+          if [ "$BACKEND_CHANGED" = "true" ] || [ "$DOCKER_CHANGED" = "true" ]; then
+            SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE coze-server"
+            echo "🔧 后端或Docker配置有变更，将更新 coze-server"
+          fi
+
+          if [ -z "$SERVICES_TO_UPDATE" ]; then
+            echo "📋 没有应用代码变更，只检查基础设施服务状态"
+            $DOCKER_COMPOSE ps
+            exit 0
+          fi
+
+          echo "🐳 拉取最新镜像: $SERVICES_TO_UPDATE"
+          $DOCKER_COMPOSE pull $SERVICES_TO_UPDATE || true
+
+          echo "🔄 重启更新的服务: $SERVICES_TO_UPDATE"
+          $DOCKER_COMPOSE up -d --no-deps $SERVICES_TO_UPDATE
+
+          # 等待服务启动
+          echo "⏳ 等待服务启动完成..."
+          sleep 20
+
+          # 检查服务状态
+          echo "🔍 检查服务状态..."
+          $DOCKER_COMPOSE ps
+
+          # 检查更新服务的健康状态
+          for service in $SERVICES_TO_UPDATE; do
+            echo "🏥 检查 $service 健康状态..."
+            if $DOCKER_COMPOSE ps $service | grep -q "unhealthy\|exited"; then
+              echo "❌ 服务 $service 启动失败"
+              $DOCKER_COMPOSE logs --tail=20 $service
+              exit 1
+            else
+              echo "✅ 服务 $service 运行正常"
+            fi
+          done
+
+          # 检查主服务可访问性（仅当更新了web或server时）
+          if echo "$SERVICES_TO_UPDATE" | grep -q "coze-"; then
+            echo "🌐 检查服务可访问性..."
+            sleep 10
+            for i in {1..6}; do
+              if curl -f -s http://localhost:8888 > /dev/null 2>&1; then
+                echo "✅ Coze Studio 服务启动成功！"
+                echo "🎉 部署完成！访问地址: http://${{ secrets.SERVER_HOST }}:8888"
+                break
+              elif [ $i -eq 6 ]; then
+                echo "⚠️  服务可能仍在启动中"
+                echo "📋 查看日志: $DOCKER_COMPOSE logs -f $SERVICES_TO_UPDATE"
+              else
+                echo "⏳ 等待服务响应... ($i/6)"
+                sleep 10
+              fi
+            done
+          fi
+
+          # 清理旧镜像（仅清理无标签镜像）
+          echo "🧹 清理无用镜像..."
+          docker image prune -f || true
+
+          echo "🎯 部署总结:"
+          echo "   📊 更新的服务: $SERVICES_TO_UPDATE"
+          echo "   📈 基础设施服务保持运行，数据无中断"
+          echo "   🔧 配置文件: $(ls -1 $TARGET_DIR/*.{env,yaml,yml} 2>/dev/null | wc -l) 个"
+
+          EOF

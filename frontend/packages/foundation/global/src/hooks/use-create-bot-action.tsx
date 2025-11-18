@@ -24,10 +24,12 @@ export const useCreateBotAction = ({
   autoCreate,
   urlSearch,
   currentSpaceId,
+  showProjectButton,
 }: {
   autoCreate?: boolean;
   urlSearch?: string;
   currentSpaceId?: string;
+  showProjectButton?: boolean;
 }) => {
   // Create bot function
   const newWindowRef = useRef<Window | null>(null);
@@ -43,6 +45,7 @@ export const useCreateBotAction = ({
   const { modalContextHolder, createProject } = useCreateProjectModal({
     bizCreateFrom: 'navi',
     selectSpace: true,
+    showProjectButton, // 传递URL参数控制
     onCreateBotSuccess: (botId, targetSpaceId) => {
       let url = `/space/${targetSpaceId}/bot/${botId}`;
       if (autoCreate) {

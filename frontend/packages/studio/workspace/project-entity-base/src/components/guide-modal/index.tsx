@@ -42,6 +42,7 @@ export interface GuideModalProps
   onCancel: () => void;
   onChange: (type: CreateType) => void;
   extraButtonConfigs?: GuideButtonProps[];
+  showProjectButton?: boolean; // 控制是否显示创建应用按钮
 }
 
 interface GuideButtonProps {
@@ -132,6 +133,7 @@ const AgentAsset = IS_OVERSEA ? AgentImgOversea : AgentImg;
 export const GuideModal: React.FC<GuideModalProps> = ({
   onChange,
   extraButtonConfigs = [],
+  showProjectButton = false, // 默认隐藏创建应用按钮
   ...modalProps
 }) => (
   <Modal
@@ -150,21 +152,23 @@ export const GuideModal: React.FC<GuideModalProps> = ({
         description={I18n.t('creat_project_agent_describe')}
         tip={!IS_OPEN_SOURCE ? I18n.t('agent_creat_tips') : null}
       />
-      <GuideButton
-        onClick={() => onChange('project')}
-        assetSrc={ProjectAsset}
-        title={
-          <span className="flex gap-x-4px items-center">
-            {I18n.t('creat_project_creat_project')}
-            <Badge count="Beta" type="alt" />
-          </span>
-        }
-        description={
-          IS_OPEN_SOURCE
-            ? I18n.t('creat_project_describe_open')
-            : I18n.t('creat_project_describe')
-        }
-      />
+      {showProjectButton && (
+        <GuideButton
+          onClick={() => onChange('project')}
+          assetSrc={ProjectAsset}
+          title={
+            <span className="flex gap-x-4px items-center">
+              {I18n.t('creat_project_creat_project')}
+              <Badge count="Beta" type="alt" />
+            </span>
+          }
+          description={
+            IS_OPEN_SOURCE
+              ? I18n.t('creat_project_describe_open')
+              : I18n.t('creat_project_describe')
+          }
+        />
+      )}
       {extraButtonConfigs.map(({ onClick, ...config }, index) => (
         <GuideButton
           key={index}

@@ -32,7 +32,7 @@ export const TopBody: FC<{
       </Button>
     </Space>
     <div className="w-full">
-      <PATInstructionWrap
+      {/* <PATInstructionWrap
         onClick={() => {
           window.open(
             IS_OVERSEA
@@ -42,7 +42,7 @@ export const TopBody: FC<{
                 'https://www.coze.cn/open/docs/developer_guides/coze_api_overview',
           );
         }}
-      />
+      /> */}
     </div>
   </Space>
 );

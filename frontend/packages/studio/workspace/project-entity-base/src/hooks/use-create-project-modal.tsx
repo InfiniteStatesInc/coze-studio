@@ -64,6 +64,7 @@ export interface CreateProjectHookProps
   bizCreateFrom: 'navi' | 'space';
   renderAutoGenerate?: (params: RenderAutoGenerateParams) => React.ReactNode;
   extraGuideButtonConfigs?: GuideModalProps['extraButtonConfigs'];
+  showProjectButton?: boolean; // 控制是否显示创建应用按钮
 }
 
 // eslint-disable-next-line @coze-arch/max-line-per-function
@@ -82,6 +83,7 @@ export const useCreateProjectModalBase = ({
   bizCreateFrom,
   renderAutoGenerate,
   extraGuideButtonConfigs,
+  showProjectButton = false, // 默认隐藏创建应用按钮
 }: CreateProjectHookProps) => {
   const [guideModalVisible, setGuideModalVisible] = useState(false);
   const [projectModalVisible, setProjectModalVisible] = useState(false);
@@ -201,6 +203,7 @@ export const useCreateProjectModalBase = ({
             onChange={onGuideChange}
             onCancel={onGuideCancel}
             extraButtonConfigs={extraGuideButtonConfigs}
+            showProjectButton={showProjectButton}
           />
         ) : null}
         {projectModalVisible ? (
